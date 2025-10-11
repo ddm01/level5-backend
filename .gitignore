@@ -1,27 +1,3 @@
-# dependencies
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# env & secrets
 .env
-.env.*
-*.pem
-*.key
-*.p12
-*.crt
-service-account*.json
-
-# OS / editor junk
 .DS_Store
-Thumbs.db
-.idea/
-.vscode/
-*.swp
-
-# build artifacts
-dist/
-build/
-coverage/
