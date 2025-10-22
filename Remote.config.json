@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "levels": [
+    /* other levels ... */
+    {
+      "id": 5,
+      "scene": "Level5",
+      "level5": {
+        "title": "Level 5 – Identify the Cost of Raw Materials",
+        "tolerancePerKg": 0.01,
+        "items": [
+          { "name": "Flour",         "keyword": "plain flour 1kg" },
+          { "name": "Sugar",         "keyword": "white sugar 1kg" },
+          { "name": "Cocoa Powder",  "keyword": "cocoa powder 500g" }
+        ]
+      }
+    }
+  ]
+}
