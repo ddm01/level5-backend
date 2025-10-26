@@ -1,5 +1,5 @@
 /*───────────────────────────────────────────────────────────
-  Level 5 Backend — Express on Render (Free)
+  Level 5 Backend — Express on Render
   Endpoints:
     GET /health
     GET /search?store=coles|woolworths&q=oreo
@@ -7,57 +7,78 @@
     GET /bulk-cheapest-perkg?items=Flour,Sugar,Cocoa Powder,Baking Powder,Vegetable Oil
 ───────────────────────────────────────────────────────────*/
 
-const express   = require('express');
-const axios     = require('axios');
-const cors      = require('cors');
-const camelCase = require('camelcase-keys');
+require("dotenv").config();
+const express   = require("express");
+const axios     = require("axios");
+const cors      = require("cors");
+const camelCase = require("camelcase-keys"); // v6 works with CommonJS
 
 const app  = express();
-const PORT = process.env.PORT || 8080; // Render provides PORT
+const PORT = process.env.PORT || 8080;
 
-// Allow itch.io + localhost for testing
-const allowed = [
-  /https:\/\/.*\.itch\.io$/,
-  /http:\/\/localhost(:\d+)?$/,
-  /https:\/\/localhost(:\d+)?$/
-];
+/* ------------------------------ CORS ------------------------------ */
+/* Allow itch.io (game page) + html-classic.itch.zone (iframe host) + localhost */
+function allowOrigin(origin, cb) {
+  if (!origin) return cb(null, true); // server-to-server or curl
 
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  next();
-});
+  try {
+    const u = new URL(origin);
+    const host = u.hostname.toLowerCase();
+    const ok =
+      host.endsWith("itch.io")   ||
+      host.endsWith("itch.zone") ||
+      host === "localhost"       ||
+      host === "127.0.0.1";
 
+    return cb(null, ok); // never throw here
+  } catch {
+    return cb(null, false);
+  }
+}
 app.use(cors({
-  origin(origin, cb) {
-    if (!origin) return cb(null, true);
-    const ok = allowed.some(r => r.test(origin));
-    cb(ok ? null : new Error("CORS blocked"), ok);
-  },
-  credentials: true
+  origin: allowOrigin,
+  methods: ["GET", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: false
 }));
+app.options("*", cors({
+  origin: allowOrigin,
+  methods: ["GET", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: false
+}));
+
 app.use(express.json());
 
+/* --------------------------- helpers --------------------------- */
 function getApiInfo(store) {
-  const s = (store || '').toLowerCase();
-  if (s === 'coles')
-    return { host: 'coles-product-price-api.p.rapidapi.com', path: '/coles/product-search' };
-  if (s === 'woolworths')
-    return { host: 'woolworths-products-api.p.rapidapi.com', path: '/woolworths/product-search/' };
+  const s = (store || "").toLowerCase();
+  if (s === "coles") {
+    return { host: "coles-product-price-api.p.rapidapi.com", path: "/coles/product-search" }; // ?query=
+  }
+  if (s === "woolworths") {
+    return { host: "woolworths-products-api.p.rapidapi.com", path: "/woolworths/product-search/" }; // ?query=
+  }
   return null;
 }
-
 function ensureKey() {
-  if (!process.env.RAPIDAPI_KEY) throw new Error('RAPIDAPI_KEY missing (set in Render env vars)');
+  if (!process.env.RAPIDAPI_KEY) throw new Error("RAPIDAPI_KEY missing (set in Render env vars)");
 }
 function toNumber(v) {
   if (v == null) return null;
-  const n = typeof v === 'string' ? parseFloat(v.replace(/[^\d.]/g, '')) : Number(v);
+  const n = typeof v === "string" ? parseFloat(v.replace(/[^\d.]/g, "")) : Number(v);
   return Number.isFinite(n) ? n : null;
 }
-function unitToKg(q, u) { u=(u||'').toLowerCase(); if(u==='g')return q/1000; if(u==='kg')return q; if(u==='ml')return q/1000; if(u==='l')return q; return null; }
-function sizeToKg(s='') {
+// unit conversion — ml/L treated as water-like by default (1 L = 1 kg)
+function unitToKg(q, u) {
+  u = (u || "").toLowerCase();
+  if (u === "g")  return q / 1000;
+  if (u === "kg") return q;
+  if (u === "ml") return q / 1000;
+  if (u === "l")  return q;
+  return null;
+}
+function sizeToKg(s = "") {
   let m = s.match(/(\d+)\s*x\s*([\d.]+)\s*(g|kg|ml|l)\b/i);
   if (m) return Number(m[1]) * unitToKg(Number(m[2]), m[3]);
   m = s.match(/([\d.]+)\s*(g|kg|ml|l)\b/i);
@@ -65,7 +86,7 @@ function sizeToKg(s='') {
   return null;
 }
 
-/* small cache to reduce RapidAPI calls */
+/* Small in-memory cache */
 const cache = new Map();
 const putCache = (k, v, ttl = 45000) => cache.set(k, { until: Date.now() + ttl, value: v });
 const getCache = (k) => {
@@ -78,35 +99,40 @@ const getCache = (k) => {
 async function callStoreSearch(store, query, page = 1, size = 15) {
   ensureKey();
   const api = getApiInfo(store);
-  if (!api) throw new Error('store must be coles or woolworths');
+  if (!api) throw new Error("store must be coles or woolworths");
 
   const key = `S:${store}|q:${query}|p:${page}|s:${size}`;
   const cached = getCache(key);
   if (cached) return cached;
 
   const url = `https://${api.host}${api.path}`;
-  const params = { query, search: query, page, size }; // send both; unused is ignored
+  const params = { query, search: query, page, size }; // send both; whichever the API expects
 
   const r = await axios.get(url, {
     params,
     headers: {
-      'x-rapidapi-key' : process.env.RAPIDAPI_KEY,
-      'x-rapidapi-host': api.host
+      "x-rapidapi-key" : process.env.RAPIDAPI_KEY,
+      "x-rapidapi-host": api.host
     },
-    timeout: 12000
+    timeout: 12000,
+    validateStatus: () => true // we'll handle non-2xx below
   });
 
+  if (r.status < 200 || r.status >= 300) {
+    throw new Error(`Upstream ${api.host} ${r.status}: ${JSON.stringify(r.data).slice(0,200)}`);
+  }
+
   const out = [];
-  for (const raw of r.data.results ?? []) {
+  for (const raw of (r.data && r.data.results) || []) {
     const obj   = camelCase(raw, { deep: true });
-    const sizeS = obj.productSize || obj.packageSize || obj.size || '';
+    const sizeS = obj.productSize || obj.packageSize || obj.size || "";
     const kg    = sizeToKg(sizeS);
     const price = toNumber(obj.currentPrice ?? obj.price ?? obj.Price);
-    const link  = obj.productUrl || obj.url || obj.link || '';
-    const id    = obj.productId || obj.id || obj.sku || '';
+    const link  = obj.productUrl || obj.url || obj.link || "";
+    const id    = obj.productId || obj.id || obj.sku || "";
 
     out.push({
-      product: obj.productName || obj.name || '',
+      product: obj.productName || obj.name || "",
       size: sizeS,
       price,
       pricePerKg: (kg && price) ? +(price / kg).toFixed(2) : null,
@@ -119,29 +145,29 @@ async function callStoreSearch(store, query, page = 1, size = 15) {
   return out;
 }
 
-/* routes */
-app.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+/* ----------------------------- routes ----------------------------- */
+app.get("/health", (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
-app.get('/search', async (req, res) => {
+app.get("/search", async (req, res) => {
   try {
-    const { store = 'coles', q } = req.query;
-    if (!q) return res.status(400).json({ error: 'Missing ?q=' });
+    const { store = "coles", q } = req.query;
+    if (!q) return res.status(400).json({ error: "Missing ?q=" });
     const list = await callStoreSearch(store, q, 1, 15);
     res.json(list);
   } catch (e) {
-    console.error('GET /search ->', (e.response && e.response.data) || e.message);
-    res.status(500).json({ error: e.message || 'Server error' });
+    console.error("GET /search ->", e.message);
+    res.status(500).json({ error: e.message || "Server error" });
   }
 });
 
-app.get('/cheapest', async (req, res) => {
+app.get("/cheapest", async (req, res) => {
   try {
     const { q } = req.query;
-    if (!q) return res.status(400).json({ error: 'Missing ?q=' });
+    if (!q) return res.status(400).json({ error: "Missing ?q=" });
 
     const [coles, woolworths] = await Promise.all([
-      callStoreSearch('coles', q, 1, 15),
-      callStoreSearch('woolworths', q, 1, 15)
+      callStoreSearch("coles", q, 1, 15),
+      callStoreSearch("woolworths", q, 1, 15)
     ]);
     const all = [...coles, ...woolworths].filter(p => p && p.price != null);
 
@@ -149,8 +175,8 @@ app.get('/cheapest', async (req, res) => {
     const withKg = all.filter(p => p.pricePerKg != null);
     const byKg   = withKg.reduce((best, p) => (!best || p.pricePerKg < best.pricePerKg ? p : best), null);
 
-    const guessStore = (p) => (p && p.url || '').toLowerCase().includes('woolworths') ? 'woolworths'
-                         : (p && p.url || '').toLowerCase().includes('coles') ? 'coles' : undefined;
+    const guessStore = (p) => (p?.url || "").toLowerCase().includes("woolworths") ? "woolworths"
+                         : (p?.url || "").toLowerCase().includes("coles") ? "coles" : undefined;
 
     res.json({
       query: q,
@@ -158,39 +184,40 @@ app.get('/cheapest', async (req, res) => {
       cheapestByKg:   byKg   ? { store: guessStore(byKg),   ...byKg   } : null
     });
   } catch (e) {
-    console.error('GET /cheapest ->', (e.response && e.response.data) || e.message);
-    res.status(500).json({ error: e.message || 'Server error' });
+    console.error("GET /cheapest ->", e.message);
+    res.status(500).json({ error: e.message || "Server error" });
   }
 });
 
-app.get('/bulk-cheapest-perkg', async (req, res) => {
+app.get("/bulk-cheapest-perkg", async (req, res) => {
   try {
-    const items = (req.query.items || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (!items.length) return res.status(400).json({ error: 'Provide ?items=Flour,Sugar,...' });
+    const items = (req.query.items || "").split(",").map(s => s.trim()).filter(Boolean);
+    if (!items.length) return res.status(400).json({ error: "Provide ?items=Flour,Sugar,..." });
 
     const out = [];
     for (const name of items) {
       const [coles, woolworths] = await Promise.all([
-        callStoreSearch('coles', name, 1, 15),
-        callStoreSearch('woolworths', name, 1, 15)
+        callStoreSearch("coles", name, 1, 15),
+        callStoreSearch("woolworths", name, 1, 15)
       ]);
 
       const all  = [...coles, ...woolworths].filter(p => p && p.price != null && p.pricePerKg != null);
-      const best = all.reduce((b, p) => (!b || p.pricePerKg < b.pricePerKg) ? p : b, null);
+      const best = all.reduce((b, p) => (!b || p.pricePerKg < b.pricePerKg ? p : b), null);
 
-      const guessStore = (p) => (p && p.url || '').toLowerCase().includes('woolworths') ? 'woolworths'
-                           : (p && p.url || '').toLowerCase().includes('coles') ? 'coles' : undefined;
+      const guessStore = (p) => (p?.url || "").toLowerCase().includes("woolworths") ? "woolworths"
+                           : (p?.url || "").toLowerCase().includes("coles") ? "coles" : undefined;
 
       out.push({ name, cheapestPerKg: best ? { store: guessStore(best), ...best } : null });
     }
 
     res.json({ items: out });
   } catch (e) {
-    console.error('GET /bulk-cheapest-perkg ->', (e.response && e.response.data) || e.message);
-    res.status(500).json({ error: e.message || 'Server error' });
+    console.error("GET /bulk-cheapest-perkg ->", e.message);
+    res.status(500).json({ error: e.message || "Server error" });
   }
 });
 
+/* ----------------------------- boot ----------------------------- */
 app.listen(PORT, () => {
   console.log(`🟢 Render service listening on :${PORT}`);
 });
