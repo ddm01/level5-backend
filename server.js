@@ -7,7 +7,6 @@
     GET /bulk-cheapest-perkg?items=Flour,Sugar,Cocoa Powder,Baking Powder,Vegetable Oil
 ───────────────────────────────────────────────────────────*/
 
-require("dotenv").config();
 const express   = require("express");
 const axios     = require("axios");
 const cors      = require("cors");
