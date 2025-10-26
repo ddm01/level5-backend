@@ -21,6 +21,13 @@ const allowed = [
   /http:\/\/localhost(:\d+)?$/,
   /https:\/\/localhost(:\d+)?$/
 ];
+
+// ✅ Allow all origins (for Itch.io)
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
 app.use(cors({
   origin(origin, cb) {
     if (!origin) return cb(null, true);
